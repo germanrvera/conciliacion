@@ -86,6 +86,9 @@ if 'resultado' not in st.session_state:
 if 'banco_nombre' not in st.session_state:
     st.session_state.banco_nombre = 'Credicoop'
 
+# El usuario que concilió viene del login
+_usuario_logueado = st.session_state.get('name', st.session_state.get('username', ''))
+
 st.title("🏦 Conciliación Bancaria")
 st.caption("SAP (Mayor) vs Extracto bancario — motor automático + corrección manual")
 
@@ -115,8 +118,6 @@ with tab_cargar:
             help="Este dato no sale del CSV — es el saldo de cierre que usás para el cuadro de control."
         )
 
-    usuario = st.text_input("Tu nombre (para el registro de quién concilió)", value="")
-
     if st.button("🔄 Hacer conciliación", type="primary", disabled=not (archivo_mayor and archivo_extracto)):
         with st.spinner("Cruzando movimientos..."):
             mayor = motor.leer_mayor(archivo_mayor)
@@ -125,7 +126,7 @@ with tab_cargar:
             resultado = motor.conciliar(mayor, extracto, saldo_banco, feedback_reglas=reglas)
             st.session_state.resultado = resultado
             st.session_state.banco_nombre = banco_nombre
-            st.session_state.usuario = usuario
+            st.session_state.usuario = _usuario_logueado
         st.success("Conciliación completa. Mirá la pestaña Resultado.")
 
     if archivo_mayor and archivo_extracto and saldo_banco == 0:
@@ -212,7 +213,7 @@ with tab_corregir:
             "ese historial (con ayuda de Claude) para mejorar las reglas del motor."
         )
 
-        usuario = st.session_state.get('usuario', '')
+        usuario = _usuario_logueado
 
         # ── A. Resolver MÚLTIPLES: asignar manualmente o confirmar sin cruce ──
         st.markdown("### 1. Casos MÚLTIPLES sin decidir")
