@@ -34,7 +34,7 @@ st.set_page_config(page_title="Conciliación Bancaria WLG", layout="wide", page_
 # AUTENTICACIÓN — lee desde st.secrets (Streamlit Cloud) o users.yaml (local)
 # ══════════════════════════════════════════════════════════════════════
 def _cargar_config_auth():
-    # En Streamlit Cloud los secrets se cargan desde el dashboard
+    # 1. Streamlit Cloud: leer desde st.secrets
     try:
         if 'credentials' in st.secrets:
             return {
@@ -43,12 +43,24 @@ def _cargar_config_auth():
             }
     except Exception:
         pass
-    # Fallback: archivo local para desarrollo
+    # 2. Desarrollo local: leer desde users.yaml
     _users_file = os.path.join(os.path.dirname(__file__), 'users.yaml')
-    with open(_users_file) as f:
-        return yaml.load(f, Loader=SafeLoader)
+    if os.path.exists(_users_file):
+        with open(_users_file) as f:
+            return yaml.load(f, Loader=SafeLoader)
+    # 3. Sin configuración: mostrar instrucciones
+    return None
 
 _config = _cargar_config_auth()
+
+if _config is None:
+    st.error("⚙️ **La app no tiene credenciales configuradas.**")
+    st.info(
+        "Si estás en **Streamlit Cloud**, andá a **Settings → Secrets** y pegá el contenido "
+        "del archivo `.streamlit/secrets.toml.example` del repositorio, reemplazando los valores. "
+        "\n\nSi estás en local, creá el archivo `users.yaml` basándote en `users.yaml.example`."
+    )
+    st.stop()
 
 authenticator = stauth.Authenticate(
     _config['credentials'],
