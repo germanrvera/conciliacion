@@ -19,6 +19,9 @@ from datetime import datetime
 
 import streamlit as st
 import pandas as pd
+import yaml
+import streamlit_authenticator as stauth
+from yaml.loader import SafeLoader
 
 sys.path.insert(0, os.path.dirname(__file__))
 import motor
@@ -26,6 +29,29 @@ import excel_export
 import feedback as fb
 
 st.set_page_config(page_title="Conciliación Bancaria WLG", layout="wide", page_icon="🏦")
+
+# ══════════════════════════════════════════════════════════════════════
+# AUTENTICACIÓN
+# ══════════════════════════════════════════════════════════════════════
+_users_file = os.path.join(os.path.dirname(__file__), 'users.yaml')
+with open(_users_file) as f:
+    _config = yaml.load(f, Loader=SafeLoader)
+
+authenticator = stauth.Authenticate(
+    _config['credentials'],
+    _config['cookie']['name'],
+    _config['cookie']['key'],
+    _config['cookie']['expiry_days'],
+)
+
+authenticator.login()
+
+if st.session_state.get('authentication_status') is False:
+    st.error('Usuario o contraseña incorrectos.')
+    st.stop()
+elif st.session_state.get('authentication_status') is None:
+    st.warning('Ingresá tu usuario y contraseña para continuar.')
+    st.stop()
 
 # ══════════════════════════════════════════════════════════════════════
 # ESTADO DE SESIÓN
@@ -275,6 +301,9 @@ with tab_descargar:
 # SIDEBAR — resumen de feedback acumulado
 # ══════════════════════════════════════════════════════════════════════
 with st.sidebar:
+    st.write(f"👤 **{st.session_state.get('name', '')}**")
+    authenticator.logout("Cerrar sesión", "sidebar")
+    st.divider()
     st.header("📋 Feedback acumulado")
     registros = fb.cargar_feedback()
     st.metric("Total de correcciones registradas", len(registros))

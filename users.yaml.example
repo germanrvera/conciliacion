@@ -1,0 +1,15 @@
+credentials:
+  usernames:
+    admin:
+      email: admin@empresa.com
+      name: Administrador
+      password: "<hash_bcrypt>"   # generá con: python3 -c "import bcrypt; print(bcrypt.hashpw(b'tupassword', bcrypt.gensalt()).decode())"
+    usuario1:
+      email: usuario1@empresa.com
+      name: Nombre Apellido
+      password: "<hash_bcrypt>"
+
+cookie:
+  expiry_days: 1
+  key: "clave_secreta_unica_para_tu_app"   # cambiá esto por una cadena aleatoria
+  name: "conciliacion_auth"
