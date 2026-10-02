@@ -31,11 +31,24 @@ import feedback as fb
 st.set_page_config(page_title="Conciliación Bancaria WLG", layout="wide", page_icon="🏦")
 
 # ══════════════════════════════════════════════════════════════════════
-# AUTENTICACIÓN
+# AUTENTICACIÓN — lee desde st.secrets (Streamlit Cloud) o users.yaml (local)
 # ══════════════════════════════════════════════════════════════════════
-_users_file = os.path.join(os.path.dirname(__file__), 'users.yaml')
-with open(_users_file) as f:
-    _config = yaml.load(f, Loader=SafeLoader)
+def _cargar_config_auth():
+    # En Streamlit Cloud los secrets se cargan desde el dashboard
+    try:
+        if 'credentials' in st.secrets:
+            return {
+                'credentials': st.secrets['credentials'].to_dict(),
+                'cookie': st.secrets['cookie'].to_dict(),
+            }
+    except Exception:
+        pass
+    # Fallback: archivo local para desarrollo
+    _users_file = os.path.join(os.path.dirname(__file__), 'users.yaml')
+    with open(_users_file) as f:
+        return yaml.load(f, Loader=SafeLoader)
+
+_config = _cargar_config_auth()
 
 authenticator = stauth.Authenticate(
     _config['credentials'],

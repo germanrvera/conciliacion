@@ -9,3 +9,4 @@ dist/
 build/
 feedback/feedback.jsonl
 users.yaml
+.streamlit/secrets.toml
