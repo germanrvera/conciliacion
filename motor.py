@@ -319,88 +319,49 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None):
                         }
                         excluir_idx.add(x['idx'])
 
-    # ── FASE 1: DP — 1 SAP a varios banco ─────────────────────────────
-    dep_groups = defaultdict(list)
-    for e in extracto:
-        if e['gasto']:
-            continue
-        m = re.search(r'Dep:(\d+)', e['concepto'] + ' ' + e['info'])
-        if m:
-            dep_groups[m.group(1)].append(e)
-
-    gdd_by_day = defaultdict(list)
-    for e in extracto:
-        if e['gasto']:
-            continue
-        if re.search(r'gestion de documentos diferidos', e['concepto'].lower()) and 'Dep:' not in e['concepto']:
-            gdd_by_day[e['fecha']].append(e)
+    # ── FASE 1: DP — 1 SAP a varias acreditaciones banco ──────────────
+    # Credicoop acredita depósitos en varias líneas (ECHQ/cámara, depósito
+    # en caja, gestión de documentos diferidos). Se cruzan por fecha ± 15d
+    # y por suma de importes, sin requerir número de lote coincidente.
+    _pat_acred = re.compile(
+        r'echq|acreditac.*valores|gestion de documentos diferidos|deposito por caja',
+        re.IGNORECASE
+    )
+    acred_bco = [e for e in extracto
+                 if not e['gasto'] and e['importe'] > 0 and _pat_acred.search(e['concepto'])]
 
     dp_sap = [s for s in sap_real if s['ndoc'].startswith('DP') and s['idx'] not in excluir_idx]
 
     for s in dp_sap:
         imp_sap = round(abs(s['importe']), 2)
-        encontrado = False
-
-        for dep_num, items in dep_groups.items():
-            disponibles = [e for e in items if e['idx'] not in used_bco]
-            cercanos = [e for e in disponibles if abs((e['fecha'] - s['fecha']).days) <= 5]
-            if not cercanos:
-                continue
-            suma = round(sum(e['importe'] for e in cercanos), 2)
-            if abs(suma - imp_sap) <= 1.0:
-                cruces[s['idx']] = {
-                    'nivel': 'DP', 'bco': cercanos[0], 'bco_list': cercanos, 'dias': 0,
-                    'motivo': f'DP: {len(cercanos)} líneas Dep:{dep_num} suman ${suma:,.2f}'
-                }
-                for e in cercanos:
-                    cruces_bco[e['idx']] = s['idx']
-                    used_bco.add(e['idx'])
-                encontrado = True
-                break
-        if encontrado:
+        disponibles = [e for e in acred_bco
+                       if e['idx'] not in used_bco
+                       and abs((e['fecha'] - s['fecha']).days) <= 15]
+        if not disponibles:
             continue
 
-        for dep_num, items in dep_groups.items():
-            disponibles = [e for e in items if e['idx'] not in used_bco
-                            and abs((e['fecha'] - s['fecha']).days) <= 10]
-            if len(disponibles) < 2:
-                continue
-            found = None
-            for r in range(1, min(len(disponibles), 6) + 1):
+        # Intento 1: todos los disponibles suman exacto
+        suma = round(sum(e['importe'] for e in disponibles), 2)
+        found = disponibles if abs(suma - imp_sap) <= 1.0 else None
+
+        # Intento 2: subconjunto (hasta 8 elementos)
+        if not found:
+            for r in range(1, min(len(disponibles), 8) + 1):
                 for combo in combinations(disponibles, r):
                     if abs(round(sum(e['importe'] for e in combo), 2) - imp_sap) <= 1.0:
-                        found = combo
+                        found = list(combo)
                         break
                 if found:
                     break
-            if found:
-                cruces[s['idx']] = {
-                    'nivel': 'DP', 'bco': found[0], 'bco_list': list(found), 'dias': 0,
-                    'motivo': f'DP: {len(found)} líneas Dep:{dep_num} (subconj.) suman ${imp_sap:,.2f}'
-                }
-                for e in found:
-                    cruces_bco[e['idx']] = s['idx']
-                    used_bco.add(e['idx'])
-                encontrado = True
-                break
-        if encontrado:
-            continue
 
-        for day, items in gdd_by_day.items():
-            disponibles = [e for e in items if e['idx'] not in used_bco
-                            and abs((day - s['fecha']).days) <= 3]
-            if not disponibles:
-                continue
-            suma = round(sum(e['importe'] for e in disponibles), 2)
-            if abs(suma - imp_sap) <= 1.0:
-                cruces[s['idx']] = {
-                    'nivel': 'DP', 'bco': disponibles[0], 'bco_list': disponibles, 'dias': 0,
-                    'motivo': f'DP: {len(disponibles)} líneas Gestión Doc.Dif.({day}) suman ${suma:,.2f}'
-                }
-                for e in disponibles:
-                    cruces_bco[e['idx']] = s['idx']
-                    used_bco.add(e['idx'])
-                break
+        if found:
+            cruces[s['idx']] = {
+                'nivel': 'DP', 'bco': found[0], 'bco_list': found, 'dias': 0,
+                'motivo': f'DP: {len(found)} acreditaciones banco suman ${imp_sap:,.2f}'
+            }
+            for e in found:
+                cruces_bco[e['idx']] = s['idx']
+                used_bco.add(e['idx'])
 
     # ── FASE 2: motor estándar 1-a-1 ──────────────────────────────────
     imp_cnt_sap = Counter(
