@@ -108,21 +108,36 @@ with tab_cargar:
     with col2:
         archivo_extracto = st.file_uploader("EXTRACTO.csv (extracto del banco)", type=['csv'])
 
+    # Auto-leer saldo de cierre desde el extracto (última fila con saldo != 0)
+    _saldo_auto = 0.0
+    if archivo_extracto:
+        _cache_key = f"saldo_auto_{archivo_extracto.name}_{archivo_extracto.size}"
+        if _cache_key not in st.session_state:
+            try:
+                _ext_preview = motor.leer_extracto(archivo_extracto)
+                archivo_extracto.seek(0)
+                st.session_state[_cache_key] = next(
+                    (e['saldo'] for e in reversed(_ext_preview) if e.get('saldo', 0) != 0),
+                    0.0
+                )
+            except Exception:
+                st.session_state[_cache_key] = 0.0
+        _saldo_auto = st.session_state[_cache_key]
+
     col3, col4 = st.columns(2)
     with col3:
         banco_nombre = st.text_input("Nombre del banco", value=st.session_state.banco_nombre)
     with col4:
         saldo_banco = st.number_input(
             "Saldo banco de cierre ($)",
-            min_value=0.0, step=0.01, format="%.2f",
-            help="Este dato no sale del CSV — es el saldo de cierre que usás para el cuadro de control."
+            min_value=0.0, value=_saldo_auto, step=0.01, format="%.2f",
+            help="Se completa automáticamente desde el extracto. Podés editarlo si el período no coincide."
         )
+        if _saldo_auto > 0 and saldo_banco == _saldo_auto:
+            st.caption("📋 Auto-leído del extracto")
 
-    _listo = bool(archivo_mayor and archivo_extracto and saldo_banco > 0)
-    if not _listo and archivo_mayor and archivo_extracto and saldo_banco == 0:
-        st.warning("⚠ Ingresá el saldo banco de cierre para poder conciliar.")
-
-    if st.button("🔄 Hacer conciliación", type="primary", disabled=not _listo):
+    if st.button("🔄 Hacer conciliación", type="primary",
+                  disabled=not (archivo_mayor and archivo_extracto)):
         with st.spinner("Cruzando movimientos..."):
             mayor = motor.leer_mayor(archivo_mayor)
             extracto = motor.leer_extracto(archivo_extracto)
@@ -141,6 +156,12 @@ with tab_resultado:
     if not r:
         st.info("Todavía no corriste ninguna conciliación. Andá a la pestaña Cargar.")
     else:
+        if r['SALDO_BCO'] == 0:
+            st.info(
+                "ℹ El saldo banco de cierre es $0 — el cuadro de control no puede verificarse. "
+                "Si necesitás la diferencia exacta, ingresá el saldo en la pestaña **Cargar** y volvé a correr."
+            )
+
         dif = r['dif']
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Saldo banco", f"${r['SALDO_BCO']:,.2f}")
