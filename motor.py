@@ -52,6 +52,11 @@ def parse_fecha_bco(s):
             return date(int(s[:4]), int(s[4:6]), int(s[6:8]))
         except ValueError:
             pass
+    for fmt in ('%d/%m/%Y', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            pass
     return None
 
 
@@ -145,17 +150,30 @@ def leer_mayor(file_bytes_or_path, encoding='latin-1'):
         fecha = parse_fecha_sap(cols[0])
         if not fecha:
             continue
-        imp = parse_num(cols[9]) if len(cols) > 9 else 0
+        # SAP export real: 20 columnas
+        # col[8]=Comentarios, col[12]=Nombre contrapartida,
+        # col[13]=Cargo/Abono ML, col[14]=Saldo acumulado ML
+        if len(cols) >= 15:
+            imp = parse_num(cols[13])
+            saldo = parse_num(cols[14])
+            comentario = cols[8].strip()
+            nombre = cols[12].strip()
+        else:
+            # fallback para formato reducido (< 15 columnas)
+            imp = parse_num(cols[9]) if len(cols) > 9 else 0
+            saldo = parse_num(cols[10]) if len(cols) > 10 else 0
+            comentario = cols[6].strip() if len(cols) > 6 else ''
+            nombre = cols[8].strip() if len(cols) > 8 else ''
         if imp == 0:
             continue
         mayor.append({
             'idx': i, 'fecha': fecha,
             'ndoc': cols[3].strip() if len(cols) > 3 else '',
             'folio': cols[4].strip() if len(cols) > 4 else '',
-            'comentario': cols[6].strip() if len(cols) > 6 else '',
-            'nombre': cols[8].strip() if len(cols) > 8 else '',
+            'comentario': comentario,
+            'nombre': nombre,
             'importe': imp,
-            'saldo': parse_num(cols[10]) if len(cols) > 10 else 0,
+            'saldo': saldo,
         })
     return mayor
 
@@ -173,8 +191,6 @@ def leer_extracto(file_bytes_or_path, encoding='latin-1'):
 
     extracto = []
     for i, line in enumerate(lines):
-        if i == 0:
-            continue
         cols = line.split(';')
         if all(c.strip() == '' for c in cols):
             continue
