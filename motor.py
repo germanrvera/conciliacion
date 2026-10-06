@@ -166,9 +166,14 @@ def leer_mayor(file_bytes_or_path, encoding='latin-1'):
             nombre = cols[8].strip() if len(cols) > 8 else ''
         if imp == 0:
             continue
+        tipo_doc = cols[2].strip() if len(cols) > 2 else ''
+        nro_doc  = cols[3].strip() if len(cols) > 3 else ''
+        # ndoc unifica tipo+número para que DP209 sea identificable como DP
+        ndoc = f"{tipo_doc}{nro_doc}" if tipo_doc else nro_doc
         mayor.append({
             'idx': i, 'fecha': fecha,
-            'ndoc': cols[3].strip() if len(cols) > 3 else '',
+            'ndoc': ndoc,
+            'tipo_doc': tipo_doc,
             'folio': cols[4].strip() if len(cols) > 4 else '',
             'comentario': comentario,
             'nombre': nombre,
@@ -213,6 +218,39 @@ def leer_extracto(file_bytes_or_path, encoding='latin-1'):
             'importe': imp, 'gasto': es_gasto(conc),
         })
     return extracto
+
+
+def diagnostico_dp(mayor, extracto):
+    """Retorna texto de diagnóstico para entender por qué DP = 0."""
+    _pat_acred = re.compile(
+        r'echq|acreditac.*valores|gestion de documentos diferidos|deposito por caja',
+        re.IGNORECASE
+    )
+    dp_sap = [s for s in mayor if s['ndoc'].startswith('DP')]
+    acred_bco = [e for e in extracto
+                 if not e['gasto'] and e['importe'] > 0 and _pat_acred.search(e['concepto'])]
+
+    lines = []
+    lines.append(f"SAP total rows: {len(mayor)}")
+    lines.append(f"SAP DP rows: {len(dp_sap)}")
+    lines.append(f"Banco acreditaciones ECHQ/GDD: {len(acred_bco)}")
+
+    if not dp_sap:
+        sample_ndocs = list({s['ndoc'] for s in mayor[:30]})
+        lines.append(f"Muestra ndoc SAP (primeros 30): {sample_ndocs}")
+    else:
+        for s in dp_sap[:5]:
+            lines.append(f"  SAP DP: ndoc={s['ndoc']} fecha={s['fecha']} importe={s['importe']:,.2f}")
+
+    if not acred_bco:
+        sample_conceptos = list({e['concepto'] for e in extracto if not e['gasto'] and e['importe'] > 0}
+                                 )[:20]
+        lines.append(f"Conceptos banco (acreditaciones, muestra): {sample_conceptos}")
+    else:
+        for e in acred_bco[:5]:
+            lines.append(f"  BCO acred: fecha={e['fecha']} importe={e['importe']:,.2f} concepto={e['concepto'][:50]}")
+
+    return "\n".join(lines)
 
 
 # ══════════════════════════════════════════════════════════════════════
