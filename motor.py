@@ -321,8 +321,9 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None):
 
     # ── FASE 1: DP — 1 SAP a varias acreditaciones banco ──────────────
     # Credicoop acredita depósitos en varias líneas (ECHQ/cámara, depósito
-    # en caja, gestión de documentos diferidos). Se cruzan por fecha ± 15d
-    # y por suma de importes, sin requerir número de lote coincidente.
+    # en caja, gestión de documentos diferidos). Los cheques diferidos se
+    # registran en SAP meses antes de acreditarse; se amplía la ventana a
+    # ±180 días para capturar ese desfasaje (ene-feb SAP → may-jul banco).
     _pat_acred = re.compile(
         r'echq|acreditac.*valores|gestion de documentos diferidos|deposito por caja',
         re.IGNORECASE
@@ -336,7 +337,7 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None):
         imp_sap = round(abs(s['importe']), 2)
         disponibles = [e for e in acred_bco
                        if e['idx'] not in used_bco
-                       and abs((e['fecha'] - s['fecha']).days) <= 15]
+                       and abs((e['fecha'] - s['fecha']).days) <= 180]
         if not disponibles:
             continue
 
