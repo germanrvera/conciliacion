@@ -168,11 +168,12 @@ def leer_mayor(file_bytes_or_path, encoding='latin-1'):
             continue
         tipo_doc = cols[2].strip() if len(cols) > 2 else ''
         nro_doc  = cols[3].strip() if len(cols) > 3 else ''
-        # ndoc unifica tipo+número para que DP209 sea identificable como DP
+        # ndoc unifica tipo+número; nro_doc se guarda separado para filtros
         ndoc = f"{tipo_doc}{nro_doc}" if tipo_doc else nro_doc
         mayor.append({
             'idx': i, 'fecha': fecha,
             'ndoc': ndoc,
+            'nro_doc': nro_doc,
             'tipo_doc': tipo_doc,
             'folio': cols[4].strip() if len(cols) > 4 else '',
             'comentario': comentario,
@@ -226,7 +227,7 @@ def diagnostico_dp(mayor, extracto):
         r'echq|acreditac.*valores|gestion de documentos diferidos|deposito por caja',
         re.IGNORECASE
     )
-    dp_sap = [s for s in mayor if s['ndoc'].startswith('DP')]
+    dp_sap = [s for s in mayor if s['nro_doc'].startswith('DP')]
     acred_bco = [e for e in extracto
                  if not e['gasto'] and e['importe'] > 0 and _pat_acred.search(e['concepto'])]
 
@@ -369,7 +370,7 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None):
     acred_bco = [e for e in extracto
                  if not e['gasto'] and e['importe'] > 0 and _pat_acred.search(e['concepto'])]
 
-    dp_sap = [s for s in sap_real if s['ndoc'].startswith('DP') and s['idx'] not in excluir_idx]
+    dp_sap = [s for s in sap_real if s['nro_doc'].startswith('DP') and s['idx'] not in excluir_idx]
 
     for s in dp_sap:
         imp_sap = round(abs(s['importe']), 2)
@@ -405,7 +406,7 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None):
     # ── FASE 2: motor estándar 1-a-1 ──────────────────────────────────
     imp_cnt_sap = Counter(
         round(abs(s['importe']), 2) for s in sap_real
-        if not s['ndoc'].startswith('DP') and s['idx'] not in excluir_idx
+        if not s['nro_doc'].startswith('DP') and s['idx'] not in excluir_idx
     )
     imp_cnt_bco = Counter(round(abs(e['importe']), 2) for e in extracto if not e['gasto'])
 
@@ -416,7 +417,7 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None):
         bco_by_imp[round(abs(e['importe']), 2)].append(e)
 
     for s in sap_real:
-        if s['ndoc'].startswith('DP') or s['idx'] in excluir_idx:
+        if s['nro_doc'].startswith('DP') or s['idx'] in excluir_idx:
             continue
         imp_abs = round(abs(s['importe']), 2)
         cands = [e for e in bco_by_imp.get(imp_abs, [])
