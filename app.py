@@ -203,27 +203,45 @@ with tab_resultado:
             bco_fecha  = bco['fecha']    if bco else '—'
             bco_conc   = bco['concepto'] if bco else ('(múltiples líneas)' if info.get('bco_list') else '—')
             bco_imp    = bco['importe']  if bco else sum(e['importe'] for e in info.get('bco_list', []))
+            dif_imp = round(s['importe'] - bco_imp, 2)
             cruces_tabla.append({
-                'Nivel':       nivel,
-                'Nº SAP':      s['ndoc'],
-                'Fecha SAP':   s['fecha'],
-                'Desc SAP':    (s['nombre'] or s['comentario'])[:40],
-                'Importe SAP': s['importe'],
-                'Fecha banco': bco_fecha,
+                'Nivel':          nivel,
+                'Nº SAP':         s['ndoc'],
+                'Fecha SAP':      s['fecha'],
+                'Desc SAP':       (s['nombre'] or s['comentario'])[:40],
+                'Importe SAP':    s['importe'],
+                'Fecha banco':    bco_fecha,
                 'Concepto banco': str(bco_conc)[:50],
-                'Importe banco': bco_imp,
-                'Días dif':    info.get('dias', 0),
+                'Importe banco':  bco_imp,
+                'Diferencia':     dif_imp,
+                'Días dif':       info.get('dias', 0),
             })
         if cruces_tabla:
             df_cruces = pd.DataFrame(cruces_tabla)
-            filtro_nivel = st.multiselect(
-                "Filtrar por nivel",
-                options=sorted(df_cruces['Nivel'].unique()),
-                default=sorted(df_cruces['Nivel'].unique()),
-                key="filtro_nivel_cruces"
-            )
+            col_f1, col_f2 = st.columns([2, 1])
+            with col_f1:
+                filtro_nivel = st.multiselect(
+                    "Filtrar por nivel",
+                    options=sorted(df_cruces['Nivel'].unique()),
+                    default=sorted(df_cruces['Nivel'].unique()),
+                    key="filtro_nivel_cruces"
+                )
+            with col_f2:
+                solo_dif = st.checkbox("Solo con diferencia de importe", key="filtro_dif_cruces")
             df_show = df_cruces[df_cruces['Nivel'].isin(filtro_nivel)]
+            if solo_dif:
+                df_show = df_show[df_show['Diferencia'].abs() > 1.0]
             st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+            # Totales de control
+            tot_sap = df_show['Importe SAP'].sum()
+            tot_bco = df_show['Importe banco'].sum()
+            tot_dif = tot_sap - tot_bco
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total SAP cruzado", f"${tot_sap:,.2f}")
+            c2.metric("Total banco cruzado", f"${tot_bco:,.2f}")
+            c3.metric("Diferencia total", f"${tot_dif:,.2f}",
+                      delta="✓ Cuadra" if abs(tot_dif) < 1 else "⚠ Revisar", delta_color="off")
             st.caption(f"{len(df_show)} cruces mostrados de {len(df_cruces)} totales")
         else:
             st.info("No hay cruces automáticos aún.")
