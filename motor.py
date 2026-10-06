@@ -374,9 +374,11 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None):
 
     for s in dp_sap:
         imp_sap = round(abs(s['importe']), 2)
+        # Solo candidatos dentro de ±180 días y cuyo importe no supere el SAP
         disponibles = [e for e in acred_bco
                        if e['idx'] not in used_bco
-                       and abs((e['fecha'] - s['fecha']).days) <= 180]
+                       and abs((e['fecha'] - s['fecha']).days) <= 180
+                       and e['importe'] <= imp_sap + 1.0]
         if not disponibles:
             continue
 
@@ -384,10 +386,12 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None):
         suma = round(sum(e['importe'] for e in disponibles), 2)
         found = disponibles if abs(suma - imp_sap) <= 1.0 else None
 
-        # Intento 2: subconjunto (hasta 8 elementos)
+        # Intento 2: subconjunto — cap a 25 candidatos más cercanos al objetivo
+        # para evitar explosión combinatoria (C(139,5) = 35M combinaciones)
         if not found:
-            for r in range(1, min(len(disponibles), 8) + 1):
-                for combo in combinations(disponibles, r):
+            candidatos = sorted(disponibles, key=lambda e: abs(e['importe'] - imp_sap / max(len(disponibles), 1)))[:25]
+            for r in range(1, min(len(candidatos), 5) + 1):
+                for combo in combinations(candidatos, r):
                     if abs(round(sum(e['importe'] for e in combo), 2) - imp_sap) <= 1.0:
                         found = list(combo)
                         break
