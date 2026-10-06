@@ -143,6 +143,7 @@ with tab_cargar:
             extracto = motor.leer_extracto(archivo_extracto)
             reglas = fb.reglas_desde_feedback()
             resultado = motor.conciliar(mayor, extracto, saldo_banco, feedback_reglas=reglas)
+            resultado['_diag_dp'] = motor.diagnostico_dp(mayor, extracto)
             st.session_state.resultado = resultado
             st.session_state.banco_nombre = banco_nombre
             st.session_state.usuario = _usuario_logueado
@@ -181,6 +182,10 @@ with tab_resultado:
         ]
         for col, (key, lbl) in zip(cols, etiquetas):
             col.metric(lbl, niveles.get(key, 0))
+
+        if niveles.get('DP', 0) == 0 and r.get('_diag_dp'):
+            with st.expander("🔍 Diagnóstico DP (por qué cruza 0)", expanded=False):
+                st.code(r['_diag_dp'])
 
         st.divider()
         st.subheader(f"⚠ Pendientes — {len(r['sin_sap'])} SAP / {len(r['sin_bco'])} banco")
