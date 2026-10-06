@@ -61,7 +61,7 @@ def generar_excel(resultado, banco_nombre='Credicoop', out_path=None):
     db_nc = resultado['db_nc']; cr_nc = resultado['cr_nc']
     db_c = resultado['db_c']; cr_c = resultado['cr_c']
     sc_bco = resultado['sc_bco']; sc_sap = resultado['sc_sap']; dif = resultado['dif']
-    sap_real = mayor[1:] if mayor else []
+    sap_real = mayor
 
     wb = Workbook()
 

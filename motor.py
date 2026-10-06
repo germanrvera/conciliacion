@@ -232,7 +232,7 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None):
     feedback_reglas = feedback_reglas or {}
     SALDO_SAP = mayor[-1]['saldo'] if mayor else 0
     SALDO_BCO = saldo_banco
-    sap_real = mayor[1:] if mayor else []
+    sap_real = mayor
 
     cruces = {}      # idx_sap -> info
     cruces_bco = {}  # idx_bco -> idx_sap

@@ -118,7 +118,11 @@ with tab_cargar:
             help="Este dato no sale del CSV — es el saldo de cierre que usás para el cuadro de control."
         )
 
-    if st.button("🔄 Hacer conciliación", type="primary", disabled=not (archivo_mayor and archivo_extracto)):
+    _listo = bool(archivo_mayor and archivo_extracto and saldo_banco > 0)
+    if not _listo and archivo_mayor and archivo_extracto and saldo_banco == 0:
+        st.warning("⚠ Ingresá el saldo banco de cierre para poder conciliar.")
+
+    if st.button("🔄 Hacer conciliación", type="primary", disabled=not _listo):
         with st.spinner("Cruzando movimientos..."):
             mayor = motor.leer_mayor(archivo_mayor)
             extracto = motor.leer_extracto(archivo_extracto)
@@ -128,9 +132,6 @@ with tab_cargar:
             st.session_state.banco_nombre = banco_nombre
             st.session_state.usuario = _usuario_logueado
         st.success("Conciliación completa. Mirá la pestaña Resultado.")
-
-    if archivo_mayor and archivo_extracto and saldo_banco == 0:
-        st.warning("⚠ Falta indicar el saldo banco de cierre.")
 
 # ══════════════════════════════════════════════════════════════════════
 # TAB 2 — RESULTADO
@@ -166,7 +167,7 @@ with tab_resultado:
         sub1, sub2, sub3 = st.tabs(["Múltiples (revisar)", "SAP sin cruce", "Banco sin cruce"])
 
         with sub1:
-            mult = [(s, r['cruces'][s['idx']]) for s in r['mayor'][1:]
+            mult = [(s, r['cruces'][s['idx']]) for s in r['mayor']
                     if s['idx'] in r['cruces'] and r['cruces'][s['idx']]['nivel'] == 'MULTIPLES']
             if mult:
                 df = pd.DataFrame([{
@@ -217,7 +218,7 @@ with tab_corregir:
 
         # ── A. Resolver MÚLTIPLES: asignar manualmente o confirmar sin cruce ──
         st.markdown("### 1. Casos MÚLTIPLES sin decidir")
-        mult = [(s, r['cruces'][s['idx']]) for s in r['mayor'][1:]
+        mult = [(s, r['cruces'][s['idx']]) for s in r['mayor']
                 if s['idx'] in r['cruces'] and r['cruces'][s['idx']]['nivel'] == 'MULTIPLES']
 
         if not mult:
@@ -263,7 +264,7 @@ with tab_corregir:
         # ── B. Marcar cruces del motor que están MAL ──────────────────
         st.markdown("### 2. Marcar un cruce automático como incorrecto")
         st.caption("Si ves un EXACTO/FECHA/DP mal hecho, marcalo acá para que se revise la regla.")
-        cruces_reales = [(s, r['cruces'][s['idx']]) for s in r['mayor'][1:]
+        cruces_reales = [(s, r['cruces'][s['idx']]) for s in r['mayor']
                           if s['idx'] in r['cruces']
                           and r['cruces'][s['idx']]['nivel'] not in ('REVERSION', 'CANCELACION', 'SIN_CRUCE_CONFIRMADO')]
         if cruces_reales:
