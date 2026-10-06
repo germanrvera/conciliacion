@@ -188,6 +188,47 @@ with tab_resultado:
                 st.code(r['_diag_dp'])
 
         st.divider()
+
+        # ── Tabla de cruces automáticos ────────────────────────────────
+        st.subheader("✅ Cruces automáticos")
+        cruces_tabla = []
+        for s in r['mayor']:
+            if s['idx'] not in r['cruces']:
+                continue
+            info = r['cruces'][s['idx']]
+            nivel = info['nivel']
+            if nivel in ('REVERSION', 'CANCELACION', 'SIN_CRUCE_CONFIRMADO'):
+                continue
+            bco = info.get('bco')
+            bco_fecha  = bco['fecha']    if bco else '—'
+            bco_conc   = bco['concepto'] if bco else ('(múltiples líneas)' if info.get('bco_list') else '—')
+            bco_imp    = bco['importe']  if bco else sum(e['importe'] for e in info.get('bco_list', []))
+            cruces_tabla.append({
+                'Nivel':       nivel,
+                'Nº SAP':      s['ndoc'],
+                'Fecha SAP':   s['fecha'],
+                'Desc SAP':    (s['nombre'] or s['comentario'])[:40],
+                'Importe SAP': s['importe'],
+                'Fecha banco': bco_fecha,
+                'Concepto banco': str(bco_conc)[:50],
+                'Importe banco': bco_imp,
+                'Días dif':    info.get('dias', 0),
+            })
+        if cruces_tabla:
+            df_cruces = pd.DataFrame(cruces_tabla)
+            filtro_nivel = st.multiselect(
+                "Filtrar por nivel",
+                options=sorted(df_cruces['Nivel'].unique()),
+                default=sorted(df_cruces['Nivel'].unique()),
+                key="filtro_nivel_cruces"
+            )
+            df_show = df_cruces[df_cruces['Nivel'].isin(filtro_nivel)]
+            st.dataframe(df_show, use_container_width=True, hide_index=True)
+            st.caption(f"{len(df_show)} cruces mostrados de {len(df_cruces)} totales")
+        else:
+            st.info("No hay cruces automáticos aún.")
+
+        st.divider()
         st.subheader(f"⚠ Pendientes — {len(r['sin_sap'])} SAP / {len(r['sin_bco'])} banco")
 
         sub1, sub2, sub3 = st.tabs(["Múltiples (revisar)", "SAP sin cruce", "Banco sin cruce"])
