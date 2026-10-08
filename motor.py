@@ -529,6 +529,10 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None, cruces_histori
             sim_d = max(sim_palabras(s['nombre'], de), sim_ngrams_recall(s['nombre'], de))
             es_sueldo = 'sueldos a pagar' in ds and es_hab(e['concepto'])
             signo_ok = (s['importe'] > 0 and e['importe'] > 0) or (s['importe'] < 0 and e['importe'] < 0)
+            # PP = pago (negativo) → solo débito bancario (negativo)
+            # PR = cobro (positivo) → solo crédito bancario (positivo)
+            if s.get('tipo_doc') in ('PP', 'PR') and not signo_ok:
+                continue
 
             score = max(0.3, 0.6 - dias * 0.003)
             if match_cuit: score += 0.35
