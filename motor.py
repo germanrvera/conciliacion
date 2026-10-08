@@ -529,12 +529,8 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None, cruces_histori
             sim_d = max(sim_palabras(s['nombre'], de), sim_ngrams_recall(s['nombre'], de))
             es_sueldo = 'sueldos a pagar' in ds and es_hab(e['concepto'])
             signo_ok = (s['importe'] > 0 and e['importe'] > 0) or (s['importe'] < 0 and e['importe'] < 0)
-            # PP = pago (negativo) → solo débito bancario (negativo)
-            # PR = cobro (positivo) → solo crédito bancario (positivo)
-            # Usar tipo_doc; si no está (historial antiguo) inferir de nro_doc/ndoc
-            _tdoc = s.get('tipo_doc') or re.match(r'^([A-Z]{2,3})\b', s.get('nro_doc') or s.get('ndoc') or '')
-            _tdoc = _tdoc.group(1) if hasattr(_tdoc, 'group') else _tdoc
-            if _tdoc in ('PP', 'PR') and not signo_ok:
+            # Signo siempre debe coincidir: SAP negativo → débito banco, SAP positivo → crédito banco
+            if not signo_ok:
                 continue
 
             score = max(0.3, 0.6 - dias * 0.003)
