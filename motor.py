@@ -124,6 +124,22 @@ def sim_palabras(a, b):
     return len(wa & wb) / max(len(wa), len(wb))
 
 
+def sim_ngrams_recall(a, b, n=4):
+    """Recall de 4-gramas: fracción de los n-gramas del nombre SAP que aparecen
+    en el texto del banco. Robusto cuando el banco abrevia o trunca el nombre
+    (ej: 'MURESCO S.A.' vs 'MURESCO SOCIEDAD ANONIMA'). Retorna 0.0 cuando el
+    banco no incluye el nombre (ECHEQ, Depósito en caja) — sin falsos positivos."""
+    na = re.sub(r'[^a-z0-9]', '', a.lower())
+    nb = re.sub(r'[^a-z0-9]', '', b.lower())
+    if len(na) < n or len(nb) < n:
+        return 0.0
+    ga = set(na[i:i+n] for i in range(len(na) - n + 1))
+    gb = set(nb[i:i+n] for i in range(len(nb) - n + 1))
+    if not ga:
+        return 0.0
+    return len(ga & gb) / len(ga)
+
+
 def es_redondo(importe):
     """Importe sin decimales significativos (termina en ,000)"""
     try:
@@ -507,7 +523,10 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None, cruces_histori
             cuit_s = extraer_cuit(ds)
             cuit_e = extraer_cuit(de)
             match_cuit = bool(cuit_s and cuit_e and cuit_s == cuit_e)
-            sim_d = sim_palabras(s['nombre'], de)
+            # Combinar similitud por palabras y por recall de 4-gramas.
+            # sim_ngrams_recall captura abreviaciones (MURESCO S.A. → MURESCO SOCIEDAD ANONIMA)
+            # sin generar falsos positivos cuando el banco no incluye el nombre.
+            sim_d = max(sim_palabras(s['nombre'], de), sim_ngrams_recall(s['nombre'], de))
             es_sueldo = 'sueldos a pagar' in ds and es_hab(e['concepto'])
             signo_ok = (s['importe'] > 0 and e['importe'] > 0) or (s['importe'] < 0 and e['importe'] < 0)
 
