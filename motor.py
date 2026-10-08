@@ -257,18 +257,18 @@ def diagnostico_dp(mayor, extracto):
 # ══════════════════════════════════════════════════════════════════════
 # MOTOR DE CRUCE
 # ══════════════════════════════════════════════════════════════════════
-def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None):
+def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None, cruces_historicos=None):
     """
     Corre el motor completo de conciliación.
 
-    feedback_reglas: dict opcional con reglas aprendidas de feedback previo:
-        {'cruces_manuales': [{'sap_key':..., 'bco_key':...}, ...],
-         'sin_cruce_confirmados': [{'sap_key':...}, ...]}
-    Estas reglas se aplican ANTES del motor automático, con máxima prioridad.
+    feedback_reglas:   dict opcional con reglas aprendidas de feedback previo.
+    cruces_historicos: dict sap_key→info de historial.cargar_historial().
+                       Los SAP que ya aparecen ahí se marcan HISTORICO sin re-procesar.
 
     Retorna un dict con todo el resultado: cruces, pendientes, estadísticas.
     """
-    feedback_reglas = feedback_reglas or {}
+    feedback_reglas   = feedback_reglas   or {}
+    cruces_historicos = cruces_historicos or {}
     SALDO_SAP = mayor[-1]['saldo'] if mayor else 0
     SALDO_BCO = saldo_banco
     sap_real = mayor
@@ -284,9 +284,27 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None):
     def bco_key(e):
         return f"{e['fecha']}|{round(e['importe'],2)}|{e['concepto'][:30]}"
 
-    # ── FASE -1: aplicar feedback manual previo (máxima prioridad) ────
+    # ── FASE -2: marcar cruces ya confirmados en el historial ─────────
     sap_by_key = {sap_key(s): s for s in sap_real}
     bco_by_key = {bco_key(e): e for e in extracto}
+
+    for sk, hist in cruces_historicos.items():
+        s = sap_by_key.get(sk)
+        if not s or s['idx'] in cruces:
+            continue
+        e = bco_by_key.get(hist.get('bco_key', ''))
+        cruces[s['idx']] = {
+            'nivel': 'HISTORICO',
+            'bco': e,
+            'dias': 0,
+            'motivo': f"Confirmado en período {hist.get('periodo','?')} — {hist.get('nivel','?')}",
+        }
+        excluir_idx.add(s['idx'])
+        if e:
+            cruces_bco[e['idx']] = s['idx']
+            used_bco.add(e['idx'])
+
+    # ── FASE -1: aplicar feedback manual previo (máxima prioridad) ────
 
     for regla in feedback_reglas.get('cruces_manuales', []):
         s = sap_by_key.get(regla.get('sap_key'))

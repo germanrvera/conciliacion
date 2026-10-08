@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 import motor
 import excel_export
 import feedback as fb
+import historial as hist
 
 st.set_page_config(page_title="Conciliación Bancaria WLG", layout="wide", page_icon="🏦")
 
@@ -142,7 +143,12 @@ with tab_cargar:
             mayor = motor.leer_mayor(archivo_mayor)
             extracto = motor.leer_extracto(archivo_extracto)
             reglas = fb.reglas_desde_feedback()
-            resultado = motor.conciliar(mayor, extracto, saldo_banco, feedback_reglas=reglas)
+            historico = hist.cargar_historial()
+            resultado = motor.conciliar(
+                mayor, extracto, saldo_banco,
+                feedback_reglas=reglas,
+                cruces_historicos=historico,
+            )
             resultado['_diag_dp'] = motor.diagnostico_dp(mayor, extracto)
             st.session_state.resultado = resultado
             st.session_state.banco_nombre = banco_nombre
@@ -175,10 +181,11 @@ with tab_resultado:
 
         st.divider()
         niveles = r['niveles']
-        cols = st.columns(6)
+        cols = st.columns(7)
         etiquetas = [
-            ('EXACTO', '✅ Exacto'), ('FECHA', '📅 Fecha'), ('DP', '🏦 DP'),
-            ('MULTI_SAP', '➕ Multi-SAP'), ('MANUAL', '✋ Manual'), ('MULTIPLES', '⚠️ Múltiples'),
+            ('HISTORICO', '📂 Historial'), ('EXACTO', '✅ Exacto'), ('FECHA', '📅 Fecha'),
+            ('DP', '🏦 DP'), ('MULTI_SAP', '➕ Multi-SAP'), ('MANUAL', '✋ Manual'),
+            ('MULTIPLES', '⚠️ Múltiples'),
         ]
         for col, (key, lbl) in zip(cols, etiquetas):
             col.metric(lbl, niveles.get(key, 0))
@@ -186,6 +193,50 @@ with tab_resultado:
         if niveles.get('DP', 0) == 0 and r.get('_diag_dp'):
             with st.expander("🔍 Diagnóstico DP (por qué cruza 0)", expanded=False):
                 st.code(r['_diag_dp'])
+
+        st.divider()
+
+        # ── Cerrar período ─────────────────────────────────────────────
+        with st.expander("💾 Cerrar período — guardar cruces en el historial", expanded=False):
+            periodos_guardados = hist.listar_periodos()
+            if periodos_guardados:
+                st.caption(f"Períodos ya cerrados: {', '.join(periodos_guardados)}")
+
+            from datetime import date as _date
+            _hoy = _date.today()
+            periodo_default = f"{_hoy.year}-{_hoy.month:02d}"
+            col_p1, col_p2 = st.columns([2, 1])
+            with col_p1:
+                periodo_input = st.text_input(
+                    "Período a cerrar (AAAA-MM)",
+                    value=periodo_default, key="periodo_cierre"
+                )
+            with col_p2:
+                reemplazar = st.checkbox("Reemplazar si ya existe", key="reemplazar_periodo")
+
+            if st.button("💾 Cerrar período y guardar", type="primary", key="btn_cerrar_periodo"):
+                if reemplazar and periodo_input in periodos_guardados:
+                    eliminados = hist.borrar_periodo(periodo_input)
+                    st.info(f"Se eliminaron {eliminados} cruces previos del período {periodo_input}.")
+                # Armar lista de cruces a guardar
+                cruces_a_guardar = []
+                for s in r['mayor']:
+                    if s['idx'] not in r['cruces']:
+                        continue
+                    info = r['cruces'][s['idx']]
+                    if info['nivel'] in ('REVERSION', 'CANCELACION', 'HISTORICO'):
+                        continue
+                    bco = info.get('bco')
+                    cruces_a_guardar.append({
+                        'sap_key':  r['sap_key_fn'](s),
+                        'bco_key':  r['bco_key_fn'](bco) if bco else '',
+                        'nivel':    info['nivel'],
+                        'sap_desc': s['nombre'] or s['comentario'],
+                        'bco_desc': bco['concepto'] if bco else '',
+                    })
+                hist.guardar_periodo(cruces_a_guardar, periodo_input, usuario=_usuario_logueado)
+                st.success(f"✅ {len(cruces_a_guardar)} cruces guardados para el período {periodo_input}. "
+                           f"No se re-procesarán en la próxima conciliación.")
 
         st.divider()
 
