@@ -329,9 +329,11 @@ with tab_resultado:
             if nivel in ('REVERSION', 'CANCELACION', 'SIN_CRUCE_CONFIRMADO'):
                 continue
             bco = info.get('bco')
+            bco_list = info.get('bco_list') or ([bco] if bco else [])
             bco_fecha  = bco['fecha']    if bco else '—'
-            bco_conc   = bco['concepto'] if bco else ('(múltiples líneas)' if info.get('bco_list') else '—')
-            bco_imp    = bco['importe']  if bco else sum(e['importe'] for e in info.get('bco_list', []))
+            bco_conc   = (bco['concepto'] if len(bco_list) == 1 else
+                          f"({len(bco_list)} líneas) " + (bco['concepto'] if bco else ''))
+            bco_imp    = sum(e['importe'] for e in bco_list) if bco_list else 0
             dif_imp = round(s['importe'] - bco_imp, 2)
             cruces_tabla.append({
                 'Nivel':          nivel,
