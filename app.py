@@ -415,9 +415,11 @@ with tab_resultado:
                     nota  = _notas_dict.get(sk, {}).get('nota', '')
                     filas.append({
                         '': _semaforo(dias),
+                        'Tipo': s.get('tipo_doc', ''),
                         'Nº SAP': s['ndoc'],
                         'Origen': s.get('periodo_origen', ''),
                         'Fecha': s['fecha'],
+                        'Vcto': s.get('fecha_vcto', '') or '',
                         'Días': dias,
                         'Descripción': (s['nombre'] or s['comentario'])[:45],
                         'Importe': s['importe'],

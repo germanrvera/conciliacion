@@ -84,19 +84,30 @@ def es_gasto(concepto):
 
 
 def tolerancia(concepto):
-    """Tolerancia de días según el tipo de concepto bancario"""
+    """Tolerancia de días según el tipo de concepto bancario.
+
+    Muchos cobros (PR) son cheques diferidos: la empresa los recibe y registra en SAP
+    en enero, pero el banco los acredita en mayo-julio cuando el cheque vence.
+    Por eso los tipos de banco que corresponden a acreditaciones (ECHQ, depósito en
+    caja, interbanking) tienen tolerancias amplias.
+    """
     c = concepto.lower()
     if re.search(r'debito.*(automatico|directo)', c): return 90
     if re.search(r'transf.*igual.*(tit|titular)', c): return 90
-    if re.search(r'echeq|echq', c): return 90
+    # ECHQ acreditaciones y pagos de cámara pueden demorar meses
+    if re.search(r'echeq|echq', c): return 180
     if re.search(r'debito.?credito.automatico', c): return 90
-    if re.search(r'deposito por caja', c): return 45
-    if re.search(r'acreditacion de valores.*camara', c): return 45
+    # Depósitos en caja: cheques diferidos entregados en sucursal, acreditación tardía
+    if re.search(r'deposito por caja', c): return 180
+    if re.search(r'acreditacion de valores.*camara', c): return 180
     if re.search(r'credito inmediato.*debin', c): return 30
     if re.search(r'pago de obligaciones.*arca', c): return 30
     if re.search(r'gestion de documentos diferidos', c): return 10
-    if re.search(r'transf.*interbanking', c): return 25
+    # Interbanking puede usarse para cobros diferidos también
+    if re.search(r'transf.*interbanking', c): return 90
     if re.search(r'transf.*inmediata.*dist.*tit', c): return 5
+    # transferencia no-inmediata entre distinto titular
+    if re.search(r'transfer.*e/cuenta|transf.*e/cta.*dist', c): return 45
     return 3
 
 
@@ -153,6 +164,10 @@ def leer_mayor(file_bytes_or_path, encoding='latin-1'):
         # SAP export real: 20 columnas
         # col[8]=Comentarios, col[12]=Nombre contrapartida,
         # col[13]=Cargo/Abono ML, col[14]=Saldo acumulado ML
+        # col[1] = fecha de vencimiento (crítico para PP = cheques diferidos)
+        fecha_vcto = parse_fecha_sap(cols[1]) if len(cols) > 1 else None
+        if fecha_vcto == fecha:
+            fecha_vcto = None  # sin sentido guardarla si es igual a fecha_contab
         if len(cols) >= 15:
             imp = parse_num(cols[13])
             saldo = parse_num(cols[14])
@@ -166,12 +181,15 @@ def leer_mayor(file_bytes_or_path, encoding='latin-1'):
             nombre = cols[8].strip() if len(cols) > 8 else ''
         if imp == 0:
             continue
-        tipo_doc = cols[2].strip() if len(cols) > 2 else ''
-        nro_doc  = cols[3].strip() if len(cols) > 3 else ''
-        # ndoc unifica tipo+número; nro_doc se guarda separado para filtros
-        ndoc = f"{tipo_doc}{nro_doc}" if tipo_doc else nro_doc
+        # col[2] = Serie (siempre "Primario"), col[3] = Nº doc con prefijo de tipo
+        # El tipo real (PR, PP, DP, AS) es el prefijo de 2-3 letras del nro_doc
+        nro_doc = cols[3].strip() if len(cols) > 3 else ''
+        _tdoc_m = re.match(r'^([A-Z]{2,3})\b', nro_doc)
+        tipo_doc = _tdoc_m.group(1) if _tdoc_m else (cols[2].strip() if len(cols) > 2 else '')
+        ndoc = nro_doc  # nro_doc ya incluye el tipo; usamos tal cual como clave
         mayor.append({
             'idx': i, 'fecha': fecha,
+            'fecha_vcto': fecha_vcto,  # None si no aplica o igual a fecha_contab
             'ndoc': ndoc,
             'nro_doc': nro_doc,
             'tipo_doc': tipo_doc,
@@ -383,7 +401,7 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None, cruces_histori
     # Credicoop acredita depósitos en varias líneas (ECHQ/cámara, depósito
     # en caja, gestión de documentos diferidos). Los cheques diferidos se
     # registran en SAP meses antes de acreditarse; se amplía la ventana a
-    # ±180 días para capturar ese desfasaje (ene-feb SAP → may-jul banco).
+    # ±365 días para capturar ese desfasaje (ene SAP → may-dic banco).
     _pat_acred = re.compile(
         r'echq|acreditac.*valores|gestion de documentos diferidos|deposito por caja',
         re.IGNORECASE
@@ -391,24 +409,45 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None, cruces_histori
     acred_bco = [e for e in extracto
                  if not e['gasto'] and e['importe'] > 0 and _pat_acred.search(e['concepto'])]
 
+    # Pre-agrupar acreditaciones ECHQ por número de depósito "Dep:XXXXXXXXXX"
+    # para facilitar el cruce con DP (varias líneas de 1 mismo depósito)
+    _re_dep = re.compile(r'\bDep:(\d+)', re.IGNORECASE)
+    dep_grupos = defaultdict(list)
+    for e in acred_bco:
+        m = _re_dep.search(e['concepto'])
+        if m:
+            dep_grupos[m.group(1)].append(e)
+
     dp_sap = [s for s in sap_real if s['nro_doc'].startswith('DP') and s['idx'] not in excluir_idx]
 
     for s in dp_sap:
         imp_sap = round(abs(s['importe']), 2)
-        # Solo candidatos dentro de ±180 días y cuyo importe no supere el SAP
+        found = None
+
+        # Intento 0: grupo de ECHQ con mismo Dep: que suma exacto al DP
+        for dep_id, grupo in dep_grupos.items():
+            grupo_disp = [e for e in grupo if e['idx'] not in used_bco
+                          and abs((e['fecha'] - s['fecha']).days) <= 365]
+            if not grupo_disp:
+                continue
+            suma_grupo = round(sum(e['importe'] for e in grupo_disp), 2)
+            if abs(suma_grupo - imp_sap) <= 1.0:
+                found = grupo_disp
+                break
+
+        # Solo candidatos dentro de ±365 días y cuyo importe no supere el SAP
         disponibles = [e for e in acred_bco
                        if e['idx'] not in used_bco
-                       and abs((e['fecha'] - s['fecha']).days) <= 180
+                       and abs((e['fecha'] - s['fecha']).days) <= 365
                        and e['importe'] <= imp_sap + 1.0]
-        if not disponibles:
-            continue
 
         # Intento 1: todos los disponibles suman exacto
-        suma = round(sum(e['importe'] for e in disponibles), 2)
-        found = disponibles if abs(suma - imp_sap) <= 1.0 else None
+        if not found:
+            suma = round(sum(e['importe'] for e in disponibles), 2)
+            found = disponibles if abs(suma - imp_sap) <= 1.0 else None
 
         # Intento 2: subconjunto — cap a 25 candidatos más cercanos al objetivo
-        # para evitar explosión combinatoria (C(139,5) = 35M combinaciones)
+        # para evitar explosión combinatoria
         if not found:
             candidatos = sorted(disponibles, key=lambda e: abs(e['importe'] - imp_sap / max(len(disponibles), 1)))[:25]
             for r in range(1, min(len(candidatos), 5) + 1):
@@ -450,10 +489,17 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None, cruces_histori
         if not cands:
             continue
 
+        # PP = cheques diferidos: usar fecha_vcto como referencia de fecha si está disponible,
+        # porque es la fecha de vencimiento del cheque (más cercana al débito bancario real).
+        # El banco puede demorar hasta 90 días en acreditar, así que mantenemos la
+        # tolerancia normal del concepto — el benefit es el menor distance, no acotar la ventana.
+        usa_vcto = s.get('tipo_doc') == 'PP' and s.get('fecha_vcto')
+        fecha_ref = s['fecha_vcto'] if usa_vcto else s['fecha']
+
         scored = []
         for e in cands:
+            dias = abs((fecha_ref - e['fecha']).days)
             tol = tolerancia(e['concepto'])
-            dias = abs((s['fecha'] - e['fecha']).days)
             if dias > tol:
                 continue
             ds = (s['comentario'] + ' ' + s['nombre']).lower()
@@ -471,9 +517,11 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None, cruces_histori
             if signo_ok: score += 0.1
             if dias <= 2: score += 0.15
             if es_sueldo: score += 0.3
+            if usa_vcto: score += 0.25  # bonus por usar fecha exacta de vencimiento
 
-            nivel = 'EXACTO' if (match_cuit or sim_d >= 0.15 or es_sueldo) else 'FECHA'
+            nivel = 'EXACTO' if (match_cuit or sim_d >= 0.15 or es_sueldo or usa_vcto) else 'FECHA'
             partes = ['importe', f'fecha±{dias}d']
+            if usa_vcto: partes[1] = f'vcto±{dias}d'
             if match_cuit: partes.append('CUIT')
             if sim_d >= 0.15: partes.append(f'desc({sim_d:.0%})')
             if es_sueldo: partes.append('HAB')

@@ -146,12 +146,13 @@ def cargar_pendientes_sap():
         entrada = {k: v for k, v in r.items()}
         # idx negativo para no colisionar con el mayor del mes actual
         entrada['idx'] = -(i + 1)
-        # restaurar fecha si viene como string
-        if isinstance(entrada.get('fecha'), str):
-            try:
-                entrada['fecha'] = date.fromisoformat(entrada['fecha'])
-            except ValueError:
-                pass
+        # restaurar fechas si vienen como string
+        for campo in ('fecha', 'fecha_vcto'):
+            if isinstance(entrada.get(campo), str):
+                try:
+                    entrada[campo] = date.fromisoformat(entrada[campo])
+                except ValueError:
+                    pass
         resultado.append(entrada)
     return resultado
 
