@@ -531,7 +531,10 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None, cruces_histori
             signo_ok = (s['importe'] > 0 and e['importe'] > 0) or (s['importe'] < 0 and e['importe'] < 0)
             # PP = pago (negativo) → solo débito bancario (negativo)
             # PR = cobro (positivo) → solo crédito bancario (positivo)
-            if s.get('tipo_doc') in ('PP', 'PR') and not signo_ok:
+            # Usar tipo_doc; si no está (historial antiguo) inferir de nro_doc/ndoc
+            _tdoc = s.get('tipo_doc') or re.match(r'^([A-Z]{2,3})\b', s.get('nro_doc') or s.get('ndoc') or '')
+            _tdoc = _tdoc.group(1) if hasattr(_tdoc, 'group') else _tdoc
+            if _tdoc in ('PP', 'PR') and not signo_ok:
                 continue
 
             score = max(0.3, 0.6 - dias * 0.003)
