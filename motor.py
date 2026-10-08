@@ -269,7 +269,10 @@ def conciliar(mayor, extracto, saldo_banco, feedback_reglas=None, cruces_histori
     """
     feedback_reglas   = feedback_reglas   or {}
     cruces_historicos = cruces_historicos or {}
-    SALDO_SAP = mayor[-1]['saldo'] if mayor else 0
+    # Saldo SAP: usar sólo entradas del período actual (idx >= 0).
+    # Las entradas de historial (idx < 0) tienen saldo del mes original — no sirven.
+    _curr = [s for s in mayor if s.get('idx', 0) >= 0]
+    SALDO_SAP = _curr[-1]['saldo'] if _curr else (mayor[-1]['saldo'] if mayor else 0)
     SALDO_BCO = saldo_banco
     sap_real = mayor
 

@@ -20,6 +20,7 @@ def _bg_de(nivel):
         'EXACTO': EX, 'FECHA': FE, 'MULTIPLES': MU, 'DP': DP_C,
         'MULTI_SAP': MS_C, 'REVERSION': REV_C, 'CANCELACION': REV_C,
         'MANUAL': MANUAL_C, 'SIN_CRUCE_CONFIRMADO': A1,
+        'HISTORICO': 'D9EAD3',
     }.get(nivel, A1)
 
 
