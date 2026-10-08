@@ -28,6 +28,8 @@ import motor
 import excel_export
 import feedback as fb
 import historial as hist
+import notas as nt
+from datetime import date as _date_cls
 
 st.set_page_config(page_title="Conciliación Bancaria WLG", layout="wide", page_icon="🏦")
 
@@ -272,6 +274,50 @@ with tab_resultado:
 
         st.divider()
 
+        # ── Cuadro de conciliación formal ──────────────────────────────
+        st.subheader("📋 Cuadro de conciliación")
+        _saldo_bco  = r['SALDO_BCO']
+        _saldo_sap  = r['SALDO_SAP']
+        _db_c       = r['db_c']   # débitos SAP sin banco (negativo)
+        _cr_c       = r['cr_c']   # créditos SAP sin banco (positivo)
+        _db_nc      = r['db_nc']  # débitos banco sin SAP (negativo)
+        _cr_nc      = r['cr_nc']  # créditos banco sin SAP (positivo)
+        _sc_bco     = r['sc_bco']
+        _sc_sap     = r['sc_sap']
+        _cierra     = abs(r['dif']) < 1
+
+        col_bco, col_sap = st.columns(2)
+        with col_bco:
+            st.markdown("**Desde el extracto banco**")
+            rows_bco = [
+                ("Saldo extracto banco",                     _saldo_bco),
+                ("(+) Créditos SAP no acreditados en banco", _cr_c),
+                ("(+) Débitos SAP no debitados en banco",    _db_c),
+                ("= **Saldo ajustado banco**",               _sc_bco),
+            ]
+            df_bco = pd.DataFrame(rows_bco, columns=["Concepto", "Importe"])
+            df_bco["Importe"] = df_bco["Importe"].apply(lambda x: f"${x:,.2f}")
+            st.table(df_bco.set_index("Concepto"))
+
+        with col_sap:
+            st.markdown("**Desde el Mayor SAP**")
+            rows_sap = [
+                ("Saldo Mayor SAP",                          _saldo_sap),
+                ("(+) Créditos banco no contabilizados",     _cr_nc),
+                ("(+) Débitos banco no contabilizados",      _db_nc),
+                ("= **Saldo ajustado libros**",              _sc_sap),
+            ]
+            df_sap = pd.DataFrame(rows_sap, columns=["Concepto", "Importe"])
+            df_sap["Importe"] = df_sap["Importe"].apply(lambda x: f"${x:,.2f}")
+            st.table(df_sap.set_index("Concepto"))
+
+        if _cierra:
+            st.success(f"✅ La conciliación cierra — diferencia: ${r['dif']:,.2f}")
+        else:
+            st.error(f"⚠ Diferencia sin explicar: ${r['dif']:,.2f} — revisá las partidas pendientes")
+
+        st.divider()
+
         # ── Tabla de cruces automáticos ────────────────────────────────
         st.subheader("✅ Cruces automáticos")
         cruces_tabla = []
@@ -332,6 +378,19 @@ with tab_resultado:
         st.divider()
         st.subheader(f"⚠ Pendientes — {len(r['sin_sap'])} SAP / {len(r['sin_bco'])} banco")
 
+        _hoy        = _date_cls.today()
+        _notas_dict = nt.cargar_notas()
+
+        def _edad_label(fecha):
+            if not fecha or not hasattr(fecha, 'toordinal'):
+                return 0
+            return (_hoy - fecha).days
+
+        def _semaforo(dias):
+            if dias <= 30:  return "🟢"
+            if dias <= 60:  return "🟡"
+            return "🔴"
+
         sub1, sub2, sub3 = st.tabs(["Múltiples (revisar)", "SAP sin cruce", "Banco sin cruce"])
 
         with sub1:
@@ -349,22 +408,73 @@ with tab_resultado:
 
         with sub2:
             if r['sin_sap']:
-                df = pd.DataFrame([{
-                    'Nº SAP': s['ndoc'], 'Fecha': s['fecha'],
-                    'Descripción': s['nombre'] or s['comentario'], 'Importe': s['importe'],
-                } for s in r['sin_sap']])
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                filas = []
+                for s in r['sin_sap']:
+                    sk    = r['sap_key_fn'](s)
+                    dias  = _edad_label(s['fecha'])
+                    nota  = _notas_dict.get(sk, {}).get('nota', '')
+                    filas.append({
+                        '': _semaforo(dias),
+                        'Nº SAP': s['ndoc'],
+                        'Origen': s.get('periodo_origen', ''),
+                        'Fecha': s['fecha'],
+                        'Días': dias,
+                        'Descripción': (s['nombre'] or s['comentario'])[:45],
+                        'Importe': s['importe'],
+                        'Nota': nota,
+                    })
+                filas.sort(key=lambda x: x['Días'], reverse=True)
+                st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
+
+                st.markdown("**Agregar nota a una partida SAP**")
+                opciones_sap = {
+                    f"{s['ndoc']} · {s['fecha']} · ${s['importe']:,.2f}": r['sap_key_fn'](s)
+                    for s in r['sin_sap']
+                }
+                sel_sap = st.selectbox("Partida", ["-- elegir --"] + list(opciones_sap), key="nota_sap_sel")
+                txt_nota_sap = st.text_input("Nota", key="nota_sap_txt",
+                                              placeholder="Ej: cheque entregado, pendiente de presentación al banco")
+                if st.button("💬 Guardar nota", key="btn_nota_sap",
+                              disabled=sel_sap == "-- elegir --" or not txt_nota_sap.strip()):
+                    nt.guardar_nota(opciones_sap[sel_sap], txt_nota_sap, usuario=_usuario_logueado)
+                    st.success("Nota guardada.")
+                    st.rerun()
             else:
                 st.success("Todo el Mayor SAP está cruzado.")
 
         with sub3:
             if r['sin_bco']:
-                df = pd.DataFrame([{
-                    'Fecha': e['fecha'], 'Importe': e['importe'],
-                    'Concepto': e['concepto'],
-                    'Tipo': 'Débito' if e['importe'] < 0 else 'Crédito',
-                } for e in r['sin_bco']])
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                filas = []
+                for e in r['sin_bco']:
+                    bk   = r['bco_key_fn'](e)
+                    dias = _edad_label(e['fecha'])
+                    nota = _notas_dict.get(bk, {}).get('nota', '')
+                    filas.append({
+                        '': _semaforo(dias),
+                        'Fecha': e['fecha'],
+                        'Origen': e.get('periodo_origen', ''),
+                        'Días': dias,
+                        'Tipo': 'Débito' if e['importe'] < 0 else 'Crédito',
+                        'Importe': e['importe'],
+                        'Concepto': e['concepto'][:50],
+                        'Nota': nota,
+                    })
+                filas.sort(key=lambda x: x['Días'], reverse=True)
+                st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
+
+                st.markdown("**Agregar nota a un movimiento banco**")
+                opciones_bco = {
+                    f"{e['fecha']} · ${e['importe']:,.2f} · {e['concepto'][:40]}": r['bco_key_fn'](e)
+                    for e in r['sin_bco']
+                }
+                sel_bco = st.selectbox("Movimiento", ["-- elegir --"] + list(opciones_bco), key="nota_bco_sel")
+                txt_nota_bco = st.text_input("Nota", key="nota_bco_txt",
+                                              placeholder="Ej: comisión bancaria del mes, ya contabilizada")
+                if st.button("💬 Guardar nota", key="btn_nota_bco",
+                              disabled=sel_bco == "-- elegir --" or not txt_nota_bco.strip()):
+                    nt.guardar_nota(opciones_bco[sel_bco], txt_nota_bco, usuario=_usuario_logueado)
+                    st.success("Nota guardada.")
+                    st.rerun()
             else:
                 st.success("Todo el extracto está cruzado.")
 
