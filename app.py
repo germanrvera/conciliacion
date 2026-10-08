@@ -140,20 +140,32 @@ with tab_cargar:
     if st.button("🔄 Hacer conciliación", type="primary",
                   disabled=not (archivo_mayor and archivo_extracto)):
         with st.spinner("Cruzando movimientos..."):
-            mayor = motor.leer_mayor(archivo_mayor)
+            mayor    = motor.leer_mayor(archivo_mayor)
             extracto = motor.leer_extracto(archivo_extracto)
-            reglas = fb.reglas_desde_feedback()
+            # Agregar partidas abiertas de períodos anteriores
+            pend_sap = hist.cargar_pendientes_sap()
+            pend_bco = hist.cargar_pendientes_bco()
+            mayor_completo    = mayor    + pend_sap
+            extracto_completo = extracto + pend_bco
+            reglas   = fb.reglas_desde_feedback()
             historico = hist.cargar_historial()
             resultado = motor.conciliar(
-                mayor, extracto, saldo_banco,
+                mayor_completo, extracto_completo, saldo_banco,
                 feedback_reglas=reglas,
                 cruces_historicos=historico,
             )
-            resultado['_diag_dp'] = motor.diagnostico_dp(mayor, extracto)
+            resultado['_diag_dp']   = motor.diagnostico_dp(mayor_completo, extracto_completo)
+            resultado['_pend_sap']  = len(pend_sap)
+            resultado['_pend_bco']  = len(pend_bco)
+            resultado['_mayor_base'] = mayor
             st.session_state.resultado = resultado
             st.session_state.banco_nombre = banco_nombre
             st.session_state.usuario = _usuario_logueado
-        st.success("Conciliación completa. Mirá la pestaña Resultado.")
+        n_pend = len(pend_sap) + len(pend_bco)
+        msg = "Conciliación completa. Mirá la pestaña Resultado."
+        if n_pend:
+            msg += f" (incluye {len(pend_sap)} SAP y {len(pend_bco)} banco de períodos anteriores)"
+        st.success(msg)
 
 # ══════════════════════════════════════════════════════════════════════
 # TAB 2 — RESULTADO
@@ -167,6 +179,12 @@ with tab_resultado:
             st.info(
                 "ℹ El saldo banco de cierre es $0 — el cuadro de control no puede verificarse. "
                 "Si necesitás la diferencia exacta, ingresá el saldo en la pestaña **Cargar** y volvé a correr."
+            )
+
+        if r.get('_pend_sap', 0) or r.get('_pend_bco', 0):
+            st.info(
+                f"📂 Se incluyeron **{r.get('_pend_sap',0)} partidas SAP** y "
+                f"**{r.get('_pend_bco',0)} movimientos banco** de períodos anteriores."
             )
 
         dif = r['dif']
@@ -235,8 +253,22 @@ with tab_resultado:
                         'bco_desc': bco['concepto'] if bco else '',
                     })
                 hist.guardar_periodo(cruces_a_guardar, periodo_input, usuario=_usuario_logueado)
-                st.success(f"✅ {len(cruces_a_guardar)} cruces guardados para el período {periodo_input}. "
-                           f"No se re-procesarán en la próxima conciliación.")
+
+                # Actualizar partidas abiertas: quitar cruzadas, agregar nuevas pendientes
+                sap_keys_cruzadas = {c['sap_key'] for c in cruces_a_guardar if c['sap_key']}
+                bco_keys_cruzadas = {c['bco_key'] for c in cruces_a_guardar if c['bco_key']}
+                n_pend_sap, n_pend_bco = hist.actualizar_pendientes(
+                    r['sin_sap'], r['sin_bco'],
+                    sap_keys_cruzadas, bco_keys_cruzadas,
+                    periodo_input,
+                    r['sap_key_fn'], r['bco_key_fn'],
+                )
+                st.success(
+                    f"✅ Período {periodo_input} cerrado — "
+                    f"{len(cruces_a_guardar)} cruces guardados. "
+                    f"Partidas abiertas para el próximo mes: "
+                    f"{n_pend_sap} SAP / {n_pend_bco} banco."
+                )
 
         st.divider()
 
